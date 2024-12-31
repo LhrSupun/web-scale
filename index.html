@@ -106,12 +106,7 @@
             async connect() {
                 try {
                     this.device = await navigator.usb.requestDevice({
-                        // filters: [
-                        //     // LoadMaster/McLeod common vendor IDs
-                        //     { vendorId: 0x0657 },  // Common LoadMaster ID
-                        //     { vendorId: 0x0922 },  // Alternative possible ID
-                        //     { vendorId: 0x0856 }   // Another possible ID
-                        // ]
+                         filters: []
                     });
 
                     await this.device.open();
