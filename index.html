@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USB Weight Scale Reader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .weight-display {
+            font-size: 48px;
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .error {
+            background-color: #ffe6e6;
+            color: #dc3545;
+        }
+        .success {
+            background-color: #e6ffe6;
+            color: #28a745;
+        }
+        .log {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>USB Weight Scale Reader</h1>
+        
+        <div class="controls">
+            <button id="connectBtn">Connect Scale</button>
+            <button id="startReadingBtn" disabled>Start Reading</button>
+            <button id="stopReadingBtn" disabled>Stop Reading</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+
+        <div class="weight-display" id="weightDisplay">
+            -- g
+        </div>
+
+        <div class="status" id="statusDisplay"></div>
+        
+        <div class="log" id="logContainer">
+            <strong>Log:</strong>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        class WeightScaleReader {
+            constructor() {
+                this.device = null;
+                this.interface = null;
+                this.endpointIn = null;
+                this.isReading = false;
+            }
+
+            async connect() {
+                try {
+                    this.device = await navigator.usb.requestDevice({
+                        filters: [
+                            { vendorId: 0x0922 },  // Dymo
+                            { vendorId: 0x2474 },  // AND Weighing
+                            { vendorId: 0x0eb8 }   // Mettler Toledo
+                        ]
+                    });
+
+                    await this.device.open();
+                    await this.device.selectConfiguration(1);
+
+                    this.interface = this.device.configuration.interfaces[0];
+                    await this.device.claimInterface(this.interface.interfaceNumber);
+
+                    this.endpointIn = this.interface.alternate.endpoints.find(
+                        e => e.direction === "in" && e.type === "bulk"
+                    );
+
+                    if (!this.endpointIn) {
+                        throw new Error("Could not find bulk IN endpoint");
+                    }
+
+                    return true;
+                } catch (error) {
+                    throw error;
+                }
+            }
+
+            async readWeight() {
+                try {
+                    if (!this.device || !this.endpointIn) {
+                        throw new Error("Device not connected");
+                    }
+
+                    const result = await this.device.transferIn(
+                        this.endpointIn.endpointNumber,
+                        64
+                    );
+
+                    const data = new Uint8Array(result.data.buffer);
+                    return this.parseWeightData(data);
+                } catch (error) {
+                    throw error;
+                }
+            }
+
+            parseWeightData(data) {
+                const weight = data[4] + (data[5] << 8);
+                const unit = this.parseUnit(data[2]);
+                const stable = (data[1] & 0x04) === 0;
+
+                return {
+                    weight,
+                    unit,
+                    stable,
+                    rawData: Array.from(data)
+                };
+            }
+
+            parseUnit(unitByte) {
+                const units = {
+                    0x2: 'g',
+                    0x3: 'kg',
+                    0x11: 'oz',
+                    0x12: 'lb'
+                };
+                return units[unitByte] || 'unknown';
+            }
+
+            async disconnect() {
+                if (this.device) {
+                    await this.device.close();
+                    this.device = null;
+                    this.interface = null;
+                    this.endpointIn = null;
+                }
+            }
+
+            async startContinuousReading(callback) {
+                this.isReading = true;
+                while (this.isReading) {
+                    try {
+                        const data = await this.readWeight();
+                        callback(null, data);
+                    } catch (error) {
+                        callback(error);
+                        this.isReading = false;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+
+            stopContinuousReading() {
+                this.isReading = false;
+            }
+        }
+
+        // UI Controller
+        const scale = new WeightScaleReader();
+        let readingInterval = null;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const startReadingBtn = document.getElementById('startReadingBtn');
+        const stopReadingBtn = document.getElementById('stopReadingBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const weightDisplay = document.getElementById('weightDisplay');
+        const statusDisplay = document.getElementById('statusDisplay');
+        const logElement = document.getElementById('log');
+
+        function updateStatus(message, isError = false) {
+            statusDisplay.textContent = message;
+            statusDisplay.className = 'status ' + (isError ? 'error' : 'success');
+        }
+
+        function log(message) {
+            const entry = document.createElement('div');
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            logElement.appendChild(entry);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                await scale.connect();
+                updateStatus('Connected to scale');
+                log('Connected to scale');
+                connectBtn.disabled = true;
+                startReadingBtn.disabled = false;
+                disconnectBtn.disabled = false;
+            } catch (error) {
+                updateStatus(error.message, true);
+                log(`Error: ${error.message}`);
+            }
+        });
+
+        startReadingBtn.addEventListener('click', () => {
+            startReadingBtn.disabled = true;
+            stopReadingBtn.disabled = false;
+            
+            scale.startContinuousReading((error, data) => {
+                if (error) {
+                    updateStatus(error.message, true);
+                    log(`Error: ${error.message}`);
+                    return;
+                }
+                
+                weightDisplay.textContent = `${data.weight}${data.unit}`;
+                if (!data.stable) {
+                    weightDisplay.textContent += ' (unstable)';
+                }
+            });
+            
+            log('Started continuous reading');
+        });
+
+        stopReadingBtn.addEventListener('click', () => {
+            scale.stopContinuousReading();
+            startReadingBtn.disabled = false;
+            stopReadingBtn.disabled = true;
+            log('Stopped continuous reading');
+        });
+
+        disconnectBtn.addEventListener('click', async () => {
+            scale.stopContinuousReading();
+            await scale.disconnect();
+            weightDisplay.textContent = '-- g';
+            updateStatus('Disconnected from scale');
+            log('Disconnected from scale');
+            connectBtn.disabled = false;
+            startReadingBtn.disabled = true;
+            stopReadingBtn.disabled = true;
+            disconnectBtn.disabled = true;
+        });
+
+        // Check if WebUSB is supported
+        if (!navigator.usb) {
+            updateStatus('WebUSB is not supported in this browser', true);
+            connectBtn.disabled = true;
+        }
+    </script>
+</body>
+</html>
