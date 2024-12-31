@@ -147,9 +147,9 @@
           const weightRegex = /ST,GS,[\+\-]\s*(\d+\.?\d*)kg/;
           const weightMatch = text.match(weightRegex);
 
-          if (match) {
+          if (weightMatch) {
             return {
-              weight: parseFloat(match[1]),
+              weight: parseFloat(weightMatch[1]),
               unit: 'kg',
               stable: text.startsWith('ST'), // ST means stable
               raw: text,
