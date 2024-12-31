@@ -138,8 +138,8 @@
         parseWeightData(data) {
           // Convert received bytes to string
           const decoder = new TextDecoder();
-          const text = decoder.decode(data);
-          // console.log(JSON.stringify(text));
+          const text = decoder.decode(data).trim();
+          console.log('Raw Data:', JSON.stringify(text));
 
           // Parse according to LoadMaster format (section 5.1-5.2 of manual)
           // Example format: ST,GS,+ 123.45 kg
