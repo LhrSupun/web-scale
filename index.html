@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>USB Weight Scale Reader</title>
+    <title>LoadMaster Scale Reader</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -73,7 +73,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>USB Weight Scale Reader</h1>
+        <h1>LoadMaster Scale Reader</h1>
         
         <div class="controls">
             <button id="connectBtn">Connect Scale</button>
@@ -83,7 +83,7 @@
         </div>
 
         <div class="weight-display" id="weightDisplay">
-            -- g
+            -- lb
         </div>
 
         <div class="status" id="statusDisplay"></div>
@@ -95,7 +95,7 @@
     </div>
 
     <script>
-        class WeightScaleReader {
+        class LoadMasterScaleReader {
             constructor() {
                 this.device = null;
                 this.interface = null;
@@ -107,9 +107,10 @@
                 try {
                     this.device = await navigator.usb.requestDevice({
                         filters: [
-                            { vendorId: 0x0922 },  // Dymo
-                            { vendorId: 0x2474 },  // AND Weighing
-                            { vendorId: 0x0eb8 }   // Mettler Toledo
+                            // LoadMaster/McLeod common vendor IDs
+                            { vendorId: 0x0657 },  // Common LoadMaster ID
+                            { vendorId: 0x0922 },  // Alternative possible ID
+                            { vendorId: 0x0856 }   // Another possible ID
                         ]
                     });
 
@@ -152,26 +153,21 @@
             }
 
             parseWeightData(data) {
-                const weight = data[4] + (data[5] << 8);
-                const unit = this.parseUnit(data[2]);
-                const stable = (data[1] & 0x04) === 0;
+                // LoadMaster specific parsing - may need adjustment for your model
+                // This is a generic implementation that may need to be modified
+                let weight = 0;
+                
+                // Assuming LoadMaster sends weight as ASCII string
+                // Convert ASCII bytes to string and parse
+                const weightStr = String.fromCharCode(...data).trim();
+                weight = parseFloat(weightStr) || 0;
 
                 return {
-                    weight,
-                    unit,
-                    stable,
+                    weight: weight,
+                    unit: 'lb', // LoadMaster typically uses pounds
+                    stable: true, // Implement stability check based on your model's protocol
                     rawData: Array.from(data)
                 };
-            }
-
-            parseUnit(unitByte) {
-                const units = {
-                    0x2: 'g',
-                    0x3: 'kg',
-                    0x11: 'oz',
-                    0x12: 'lb'
-                };
-                return units[unitByte] || 'unknown';
             }
 
             async disconnect() {
@@ -203,7 +199,7 @@
         }
 
         // UI Controller
-        const scale = new WeightScaleReader();
+        const scale = new LoadMasterScaleReader();
         let readingInterval = null;
 
         const connectBtn = document.getElementById('connectBtn');
@@ -229,8 +225,8 @@
         connectBtn.addEventListener('click', async () => {
             try {
                 await scale.connect();
-                updateStatus('Connected to scale');
-                log('Connected to scale');
+                updateStatus('Connected to LoadMaster scale');
+                log('Connected to LoadMaster scale');
                 connectBtn.disabled = true;
                 startReadingBtn.disabled = false;
                 disconnectBtn.disabled = false;
@@ -251,7 +247,7 @@
                     return;
                 }
                 
-                weightDisplay.textContent = `${data.weight}${data.unit}`;
+                weightDisplay.textContent = `${data.weight} ${data.unit}`;
                 if (!data.stable) {
                     weightDisplay.textContent += ' (unstable)';
                 }
@@ -270,7 +266,7 @@
         disconnectBtn.addEventListener('click', async () => {
             scale.stopContinuousReading();
             await scale.disconnect();
-            weightDisplay.textContent = '-- g';
+            weightDisplay.textContent = '-- lb';
             updateStatus('Disconnected from scale');
             log('Disconnected from scale');
             connectBtn.disabled = false;
