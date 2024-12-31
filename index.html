@@ -1,378 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LoadMaster Scale Reader</title>
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 20px;
-        background-color: #f5f5f5;
-      }
-      .container {
-        background-color: white;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      }
-      .weight-display {
-        font-size: 48px;
-        text-align: center;
-        margin: 20px 0;
-        padding: 20px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
-      }
-      .controls {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 20px;
-      }
-      button {
-        padding: 10px 20px;
-        font-size: 16px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        background-color: #007bff;
-        color: white;
-        transition: background-color 0.2s;
-      }
-      button:hover {
-        background-color: #0056b3;
-      }
-      button:disabled {
-        background-color: #cccccc;
-        cursor: not-allowed;
-      }
-      .status {
-        margin-top: 20px;
-        padding: 10px;
-        border-radius: 4px;
-      }
-      .error {
-        background-color: #ffe6e6;
-        color: #dc3545;
-      }
-      .success {
-        background-color: #e6ffe6;
-        color: #28a745;
-      }
-      .log {
-        margin-top: 20px;
-        padding: 10px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
-        max-height: 200px;
-        overflow-y: auto;
-      }
-      .debug-info {
-        margin-top: 20px;
-        padding: 10px;
-        background-color: #f8f9fa;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-family: monospace;
-        white-space: pre-wrap;
-      }
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .weight-display {
+            font-size: 48px;
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .error { background-color: #ffe6e6; color: #dc3545; }
+        .success { background-color: #e6ffe6; color: #28a745; }
+        .log {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
     </style>
-  </head>
-  <body>
+</head>
+<body>
     <div class="container">
-      <h1>LoadMaster Scale Reader</h1>
+        <h1>LoadMaster Scale Reader</h1>
+        
+        <div class="controls">
+            <button id="connectBtn">Connect Scale</button>
+            <button id="startReadingBtn" disabled>Start Reading</button>
+            <button id="stopReadingBtn" disabled>Stop Reading</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
 
-      <div class="controls">
-        <button id="checkPermissionsBtn">Check Permissions</button>
-        <button id="connectBtn">Connect Scale</button>
-        <button id="startReadingBtn" disabled>Start Reading</button>
-        <button id="stopReadingBtn" disabled>Stop Reading</button>
-        <button id="disconnectBtn" disabled>Disconnect</button>
-      </div>
-
-      <div class="weight-display" id="weightDisplay">-- kg</div>
-
-      <div class="status" id="statusDisplay"></div>
-
-      <div class="log" id="logContainer">
-        <strong>Log:</strong>
-        <div id="log"></div>
-      </div>
-      <div class="debug-info" id="debugInfo"></div>
+        <div class="weight-display" id="weightDisplay">-- kg</div>
+        <div class="status" id="statusDisplay"></div>
+        
+        <div class="log">
+            <strong>Log:</strong>
+            <div id="log"></div>
+        </div>
     </div>
 
     <script>
-      class LoadMasterScaleReader {
-        constructor() {
-          this.device = null;
-          this.interface = null;
-          this.endpointIn = null;
-          this.isReading = false;
-          this.debugInfo = document.getElementById('debugInfo');
-        }
-
-        async checkPermissions() {
-          try {
-            // Try to get list of already-authorized devices
-            const devices = await navigator.usb.getDevices();
-            this.logDebug('Already authorized devices:', devices);
-
-            return devices.length > 0;
-          } catch (error) {
-            this.logDebug('Error checking permissions:', error);
-            return false;
-          }
-        }
-        async connect() {
-          try {
-            // First try to get already-authorized devices
-            const devices = await navigator.usb.getDevices();
-            this.logDebug('Existing devices:', devices);
-
-            if (devices.length > 0) {
-              this.device = devices[0];
-            } else {
-              // If no authorized devices, request a new one
-              this.device = await navigator.usb.requestDevice({
-                filters: [], // Show all devices for debugging
-              });
+        class LoadMasterScaleReader {
+            constructor() {
+                this.port = null;
+                this.reader = null;
+                this.isReading = false;
             }
 
-            this.logDebug('Selected device:', {
-              vendorId: this.device.vendorId,
-              productId: this.device.productId,
-              manufacturerName: this.device.manufacturerName,
-              productName: this.device.productName,
+            async connect() {
+                try {
+                    this.port = await navigator.serial.requestPort();
+                    await this.port.open({
+                        baudRate: 9600,
+                        dataBits: 8,
+                        stopBits: 1,
+                        parity: "none",
+                        flowControl: "none"
+                    });
+                    return true;
+                } catch (error) {
+                    throw error;
+                }
+            }
+
+            async startReading(callback) {
+                try {
+                    this.isReading = true;
+                    this.reader = this.port.readable.getReader();
+                    
+                    while (this.isReading) {
+                        const { value, done } = await this.reader.read();
+                        if (done) {
+                            break;
+                        }
+                        // Parse the received data according to LoadMaster format
+                        const weightData = this.parseWeightData(value);
+                        callback(null, weightData);
+                    }
+                    
+                    this.reader.releaseLock();
+                } catch (error) {
+                    callback(error);
+                }
+            }
+
+            parseWeightData(data) {
+                // Convert received bytes to string
+                const decoder = new TextDecoder();
+                const text = decoder.decode(data);
+                
+                // Parse according to LoadMaster format (section 5.1-5.2 of manual)
+                // Example format: ST,GS,+ 123.45 kg
+                const parts = text.trim().split(',');
+                
+                return {
+                    weight: parseFloat(parts[2]) || 0,
+                    unit: parts[2]?.includes('kg') ? 'kg' : 'lb',
+                    stable: parts[0] === 'ST',
+                    raw: text
+                };
+            }
+
+            async stopReading() {
+                this.isReading = false;
+                if (this.reader) {
+                    await this.reader.cancel();
+                }
+            }
+
+            async disconnect() {
+                if (this.port) {
+                    await this.port.close();
+                    this.port = null;
+                }
+            }
+        }
+
+        // UI Controller
+        const scale = new LoadMasterScaleReader();
+        const connectBtn = document.getElementById('connectBtn');
+        const startReadingBtn = document.getElementById('startReadingBtn');
+        const stopReadingBtn = document.getElementById('stopReadingBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const weightDisplay = document.getElementById('weightDisplay');
+        const statusDisplay = document.getElementById('statusDisplay');
+        const logElement = document.getElementById('log');
+
+        function updateStatus(message, isError = false) {
+            statusDisplay.textContent = message;
+            statusDisplay.className = 'status ' + (isError ? 'error' : 'success');
+        }
+
+        function log(message) {
+            const entry = document.createElement('div');
+            entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            logElement.appendChild(entry);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                await scale.connect();
+                updateStatus('Connected to LoadMaster scale');
+                log('Connected to LoadMaster scale');
+                connectBtn.disabled = true;
+                startReadingBtn.disabled = false;
+                disconnectBtn.disabled = false;
+            } catch (error) {
+                updateStatus(`Connection failed: ${error.message}`, true);
+                log(`Error: ${error.message}`);
+            }
+        });
+
+        startReadingBtn.addEventListener('click', async () => {
+            startReadingBtn.disabled = true;
+            stopReadingBtn.disabled = false;
+            
+            scale.startReading((error, data) => {
+                if (error) {
+                    updateStatus(`Reading error: ${error.message}`, true);
+                    log(`Error: ${error.message}`);
+                    return;
+                }
+                weightDisplay.textContent = `${data.weight} ${data.unit}`;
+                if (!data.stable) {
+                    weightDisplay.textContent += ' (unstable)';
+                }
             });
-
-            // Try opening with error details
-            try {
-              await this.device.open();
-            } catch (error) {
-              this.logDebug('Error opening device:', {
-                error: error.toString(),
-                name: error.name,
-                message: error.message,
-              });
-              throw error;
-            }
-
-            this.logDebug('Device opened successfully');
-
-            // Get available configurations
-            this.logDebug(
-              'Available configurations:',
-              this.device.configurations
-            );
-
-            await this.device.selectConfiguration(1);
-            this.logDebug('Configuration selected');
-
-            this.interface = this.device.configuration.interfaces[0];
-            this.logDebug('Interface:', this.interface);
-
-            try {
-              await this.device.claimInterface(this.interface.interfaceNumber);
-              this.logDebug('Interface claimed successfully');
-            } catch (error) {
-              this.logDebug('Error claiming interface:', error);
-              throw error;
-            }
-
-            this.endpointIn = this.interface.alternate.endpoints.find(
-              (e) => e.direction === 'in' && e.type === 'bulk'
-            );
-
-            if (!this.endpointIn) {
-              throw new Error('Could not find bulk IN endpoint');
-            }
-
-            this.logDebug('Connection completed successfully');
-            return true;
-          } catch (error) {
-            this.logDebug('Connection error:', error);
-            throw error;
-          }
-        }
-
-        async readWeight() {
-          try {
-            if (!this.device || !this.endpointIn) {
-              throw new Error('Device not connected');
-            }
-
-            const result = await this.device.transferIn(
-              this.endpointIn.endpointNumber,
-              64
-            );
-
-            const data = new Uint8Array(result.data.buffer);
-            return this.parseWeightData(data);
-          } catch (error) {
-            throw error;
-          }
-        }
-
-        parseWeightData(data) {
-          // LoadMaster specific parsing - may need adjustment for your model
-          // This is a generic implementation that may need to be modified
-          let weight = 0;
-
-          // Assuming LoadMaster sends weight as ASCII string
-          // Convert ASCII bytes to string and parse
-          const weightStr = String.fromCharCode(...data).trim();
-          weight = parseFloat(weightStr) || 0;
-
-          return {
-            weight: weight,
-            unit: 'lb', // LoadMaster typically uses pounds
-            stable: true, // Implement stability check based on your model's protocol
-            rawData: Array.from(data),
-          };
-        }
-
-        async disconnect() {
-          if (this.device) {
-            await this.device.close();
-            this.device = null;
-            this.interface = null;
-            this.endpointIn = null;
-          }
-        }
-
-        async startContinuousReading(callback) {
-          this.isReading = true;
-          while (this.isReading) {
-            try {
-              const data = await this.readWeight();
-              callback(null, data);
-            } catch (error) {
-              callback(error);
-              this.isReading = false;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          }
-        }
-
-        stopContinuousReading() {
-          this.isReading = false;
-        }
-
-        logDebug(message, data = null) {
-          const timestamp = new Date().toLocaleTimeString();
-          let debugMessage = `${timestamp}: ${message}\n`;
-          if (data) {
-            debugMessage += JSON.stringify(data, null, 2) + '\n';
-          }
-          this.debugInfo.textContent += debugMessage;
-          this.debugInfo.scrollTop = this.debugInfo.scrollHeight;
-        }
-      }
-
-      // UI Controller
-      const scale = new LoadMasterScaleReader();
-      let readingInterval = null;
-
-      const connectBtn = document.getElementById('connectBtn');
-      const startReadingBtn = document.getElementById('startReadingBtn');
-      const stopReadingBtn = document.getElementById('stopReadingBtn');
-      const disconnectBtn = document.getElementById('disconnectBtn');
-      const weightDisplay = document.getElementById('weightDisplay');
-      const statusDisplay = document.getElementById('statusDisplay');
-      const logElement = document.getElementById('log');
-
-      function updateStatus(message, isError = false) {
-        statusDisplay.textContent = message;
-        statusDisplay.className = 'status ' + (isError ? 'error' : 'success');
-      }
-
-      function log(message) {
-        const entry = document.createElement('div');
-        entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-        logElement.appendChild(entry);
-        logElement.scrollTop = logElement.scrollHeight;
-      }
-
-      connectBtn.addEventListener('click', async () => {
-        try {
-          await scale.connect();
-          updateStatus('Connected to LoadMaster scale');
-          log('Connected to LoadMaster scale');
-          connectBtn.disabled = true;
-          startReadingBtn.disabled = false;
-          disconnectBtn.disabled = false;
-        } catch (error) {
-          updateStatus(error.message, true);
-          log(`Error: ${error.message}`);
-        }
-      });
-
-      startReadingBtn.addEventListener('click', () => {
-        startReadingBtn.disabled = true;
-        stopReadingBtn.disabled = false;
-
-        scale.startContinuousReading((error, data) => {
-          if (error) {
-            updateStatus(error.message, true);
-            log(`Error: ${error.message}`);
-            return;
-          }
-
-          weightDisplay.textContent = `${data.weight} ${data.unit}`;
-          if (!data.stable) {
-            weightDisplay.textContent += ' (unstable)';
-          }
+            
+            log('Started continuous reading');
         });
 
-        log('Started continuous reading');
-      });
-
-      stopReadingBtn.addEventListener('click', () => {
-        scale.stopContinuousReading();
-        startReadingBtn.disabled = false;
-        stopReadingBtn.disabled = true;
-        log('Stopped continuous reading');
-      });
-
-      disconnectBtn.addEventListener('click', async () => {
-        scale.stopContinuousReading();
-        await scale.disconnect();
-        weightDisplay.textContent = '-- lb';
-        updateStatus('Disconnected from scale');
-        log('Disconnected from scale');
-        connectBtn.disabled = false;
-        startReadingBtn.disabled = true;
-        stopReadingBtn.disabled = true;
-        disconnectBtn.disabled = true;
-      });
-
-      // Check if WebUSB is supported
-      if (!navigator.usb) {
-        updateStatus('WebUSB is not supported in this browser', true);
-        connectBtn.disabled = true;
-      }
-      document
-        .getElementById('checkPermissionsBtn')
-        .addEventListener('click', async () => {
-          try {
-            const hasPermissions = await scale.checkPermissions();
-            updateStatus(
-              `Permissions check: ${
-                hasPermissions ? 'Authorized' : 'Not authorized'
-              }`
-            );
-            log(
-              `Permissions check: ${
-                hasPermissions ? 'Authorized' : 'Not authorized'
-              }`
-            );
-          } catch (error) {
-            updateStatus(error.message, true);
-            log(`Error checking permissions: ${error.message}`);
-          }
+        stopReadingBtn.addEventListener('click', async () => {
+            await scale.stopReading();
+            startReadingBtn.disabled = false;
+            stopReadingBtn.disabled = true;
+            log('Stopped continuous reading');
         });
+
+        disconnectBtn.addEventListener('click', async () => {
+            await scale.stopReading();
+            await scale.disconnect();
+            weightDisplay.textContent = '-- kg';
+            updateStatus('Disconnected from scale');
+            log('Disconnected from scale');
+            connectBtn.disabled = false;
+            startReadingBtn.disabled = true;
+            stopReadingBtn.disabled = true;
+            disconnectBtn.disabled = true;
+        });
+
+        // Check if Web Serial API is supported
+        if (!navigator.serial) {
+            updateStatus('Web Serial API is not supported in this browser', true);
+            connectBtn.disabled = true;
+        }
     </script>
-  </body>
+</body>
 </html>
