@@ -101,7 +101,7 @@
         stable: false,
         status: '',
         isError: false,
-        logs: []
+        logs: [],
       });
 
       // Pure function to create serial port config
@@ -110,77 +110,80 @@
         dataBits: 8,
         stopBits: 1,
         parity: 'none',
-        flowControl: 'none'
+        flowControl: 'none',
       });
 
       // Pure functions for data parsing
-      const parseWeightData = text => {
+      const parseWeightData = (text) => {
+        console.log({ text });
         const weightRegex = /ST,GS,[\+\-]\s*(\d+\.?\d*)kg/;
         const weightMatch = text.match(weightRegex);
-        
-        return weightMatch 
+
+        return weightMatch
           ? {
               weight: parseFloat(weightMatch[1]),
               unit: 'kg',
               stable: text.startsWith('ST'),
-              raw: text
+              raw: text,
             }
           : {
               weight: 0,
               unit: 'kg',
               stable: false,
-              raw: text
+              raw: text,
             };
       };
 
       // Pure function to decode bytes to text
-      const decodeBytes = data => new TextDecoder().decode(data).trim();
+      const decodeBytes = (data) => new TextDecoder().decode(data).trim();
 
       // Pure functions for UI updates
-      const createLogEntry = message => ({
+      const createLogEntry = (message) => ({
         timestamp: new Date().toLocaleTimeString(),
-        message
+        message,
       });
 
-      const updateButtonStates = state => ({
+      const updateButtonStates = (state) => ({
         connectBtn: !state.port && navigator.serial,
         startReadingBtn: state.port && !state.isReading,
         stopReadingBtn: state.isReading,
-        disconnectBtn: state.port
+        disconnectBtn: state.port,
       });
 
       // Side effect functions (impure by nature, but isolated)
       const updateDOM = {
         weight: (weight, unit, stable) => {
           const weightDisplay = document.getElementById('weightDisplay');
-          weightDisplay.textContent = `${weight} ${unit}${stable ? '' : ' (unstable)'}`;
+          weightDisplay.textContent = `${weight} ${unit}${
+            stable ? '' : ' (unstable)'
+          }`;
         },
-        
+
         status: (message, isError) => {
           const statusDisplay = document.getElementById('statusDisplay');
           statusDisplay.textContent = message;
           statusDisplay.className = 'status ' + (isError ? 'error' : 'success');
         },
-        
-        log: entry => {
+
+        log: (entry) => {
           const logElement = document.getElementById('log');
           const div = document.createElement('div');
           div.textContent = `${entry.timestamp}: ${entry.message}`;
           logElement.appendChild(div);
           logElement.scrollTop = logElement.scrollHeight;
         },
-        
-        buttons: states => {
+
+        buttons: (states) => {
           Object.entries(states).forEach(([id, enabled]) => {
             document.getElementById(id).disabled = !enabled;
           });
-        }
+        },
       };
 
       // Main application logic using async/await and composition
       const ScaleReader = (() => {
         let state = createInitialState();
-        
+
         const updateState = (newState) => {
           state = { ...state, ...newState };
           return state;
@@ -191,7 +194,7 @@
           try {
             const port = await navigator.serial.requestPort();
             await port.open(createSerialConfig());
-            
+
             updateState({ port });
             return true;
           } catch (error) {
@@ -211,7 +214,7 @@
           try {
             const { value, done } = await reader.read();
             if (done) return null;
-            
+
             const text = decodeBytes(value);
             return parseWeightData(text);
           } catch (error) {
@@ -228,7 +231,7 @@
             try {
               const data = await processReading(reader);
               if (!data) break;
-              
+
               updateDOM.weight(data.weight, data.unit, data.stable);
             } catch (error) {
               updateDOM.status(`Reading error: ${error.message}`, true);
@@ -251,47 +254,66 @@
           connect,
           disconnect,
           startReading,
-          stopReading
+          stopReading,
         };
       })();
 
       // Event handlers
-      document.getElementById('connectBtn').addEventListener('click', async () => {
-        try {
-          await ScaleReader.connect();
-          updateDOM.status('Connected to LoadMaster scale');
-          updateDOM.log(createLogEntry('Connected to LoadMaster scale'));
-          updateDOM.buttons(updateButtonStates({ port: true, isReading: false }));
-        } catch (error) {
-          updateDOM.status(`Connection failed: ${error.message}`, true);
-          updateDOM.log(createLogEntry(`Error: ${error.message}`));
-        }
-      });
+      document
+        .getElementById('connectBtn')
+        .addEventListener('click', async () => {
+          try {
+            await ScaleReader.connect();
+            updateDOM.status('Connected to LoadMaster scale');
+            updateDOM.log(createLogEntry('Connected to LoadMaster scale'));
+            updateDOM.buttons(
+              updateButtonStates({ port: true, isReading: false })
+            );
+          } catch (error) {
+            updateDOM.status(`Connection failed: ${error.message}`, true);
+            updateDOM.log(createLogEntry(`Error: ${error.message}`));
+          }
+        });
 
-      document.getElementById('startReadingBtn').addEventListener('click', async () => {
-        updateDOM.buttons(updateButtonStates({ port: true, isReading: true }));
-        updateDOM.log(createLogEntry('Started continuous reading'));
-        await ScaleReader.startReading();
-      });
+      document
+        .getElementById('startReadingBtn')
+        .addEventListener('click', async () => {
+          updateDOM.buttons(
+            updateButtonStates({ port: true, isReading: true })
+          );
+          updateDOM.log(createLogEntry('Started continuous reading'));
+          await ScaleReader.startReading();
+        });
 
-      document.getElementById('stopReadingBtn').addEventListener('click', async () => {
-        await ScaleReader.stopReading();
-        updateDOM.buttons(updateButtonStates({ port: true, isReading: false }));
-        updateDOM.log(createLogEntry('Stopped continuous reading'));
-      });
+      document
+        .getElementById('stopReadingBtn')
+        .addEventListener('click', async () => {
+          await ScaleReader.stopReading();
+          updateDOM.buttons(
+            updateButtonStates({ port: true, isReading: false })
+          );
+          updateDOM.log(createLogEntry('Stopped continuous reading'));
+        });
 
-      document.getElementById('disconnectBtn').addEventListener('click', async () => {
-        await ScaleReader.stopReading();
-        await ScaleReader.disconnect();
-        updateDOM.weight('--', 'kg', true);
-        updateDOM.status('Disconnected from scale');
-        updateDOM.log(createLogEntry('Disconnected from scale'));
-        updateDOM.buttons(updateButtonStates({ port: false, isReading: false }));
-      });
+      document
+        .getElementById('disconnectBtn')
+        .addEventListener('click', async () => {
+          await ScaleReader.stopReading();
+          await ScaleReader.disconnect();
+          updateDOM.weight('--', 'kg', true);
+          updateDOM.status('Disconnected from scale');
+          updateDOM.log(createLogEntry('Disconnected from scale'));
+          updateDOM.buttons(
+            updateButtonStates({ port: false, isReading: false })
+          );
+        });
 
       // Initial setup
       if (!navigator.serial) {
-        updateDOM.status('Web Serial API is not supported in this browser', true);
+        updateDOM.status(
+          'Web Serial API is not supported in this browser',
+          true
+        );
         updateDOM.buttons({ connectBtn: false });
       }
     </script>
