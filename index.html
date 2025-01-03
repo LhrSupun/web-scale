@@ -139,7 +139,7 @@
           // Convert received bytes to string
           const decoder = new TextDecoder();
           const text = decoder.decode(data);
-          // console.log(JSON.stringify(text));
+          console.log(text);
 
           // Parse according to LoadMaster format (section 5.1-5.2 of manual)
           // Example format: ST,GS,+ 123.45 kg
@@ -149,7 +149,7 @@
 
           if (weightMatch) {
             return {
-              weight: parseFloat(match[1]),
+              weight: parseFloat(weightMatch[1]),
               unit: 'kg',
               stable: text.startsWith('ST'), // ST means stable
               raw: text,
