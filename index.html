@@ -76,8 +76,6 @@
 
       <div class="controls">
         <button id="connectBtn">Connect Scale</button>
-        <button id="startReadingBtn" disabled>Start Reading</button>
-        <button id="stopReadingBtn" disabled>Stop Reading</button>
         <button id="disconnectBtn" disabled>Disconnect</button>
       </div>
 
@@ -92,173 +90,174 @@
 
     <script>
       class LoadMasterScaleReader {
-        constructor() {
+        constructor(options = {}) {
           this.port = null;
           this.reader = null;
           this.isReading = false;
+          this.baudRate = options.baudRate || 9600;
+          this.onWeightReceived = options.onWeightReceived || console.log;
+          this.onError = options.onError || console.error;
         }
 
         async connect() {
           try {
             this.port = await navigator.serial.requestPort();
             await this.port.open({
-              baudRate: 9600,
+              baudRate: this.baudRate,
               dataBits: 8,
               stopBits: 1,
               parity: 'none',
-              flowControl: 'none',
+              flowControl: 'none'
             });
-            return true;
+
+            console.log('Serial port connected successfully');
+            this.startReading();
           } catch (error) {
+            console.error('Failed to connect:', error);
             throw error;
           }
         }
 
-        async startReading(callback) {
+        async startReading() {
+          if (this.isReading) return;
+
           try {
             this.isReading = true;
             this.reader = this.port.readable.getReader();
 
+            const decoder = new TextDecoder();
+            let buffer = '';
+
             while (this.isReading) {
               const { value, done } = await this.reader.read();
-              if (done) {
-                break;
-              }
-              // Parse the received data according to LoadMaster format
-              const weightData = this.parseWeightData(value);
-              callback(null, weightData);
-            }
+              if (done) break;
 
-            this.reader.releaseLock();
+              // Decode the received data and add to buffer
+              buffer += decoder.decode(value);
+
+              // Process complete lines
+              const lines = buffer.split('\r\n');
+              buffer = lines.pop(); // Keep the incomplete line in the buffer
+
+              for (const line of lines) {
+                const weightData = this.parseWeightData(line);
+                if (weightData) {
+                  this.onWeightReceived(weightData);
+                }
+              }
+            }
           } catch (error) {
-            callback(error);
+            this.onError('Error reading from scale:', error);
+          } finally {
+            this.isReading = false;
+            if (this.reader) {
+              this.reader.releaseLock();
+            }
           }
         }
 
-        parseWeightData(data) {
-          // Convert received bytes to string
-          const decoder = new TextDecoder();
-          const text = decoder.decode(data);
-          console.log(text);
-
-          // Parse according to LoadMaster format (section 5.1-5.2 of manual)
+        parseWeightData(line) {
+          const trimmedLine = line.trim();
+          // Parse according to LoadMaster format
           // Example format: ST,GS,+ 123.45 kg
-          //1.39kg\r\nST,GS,+ 1.39kg\r\nST,GS,+
           const weightRegex = /ST,GS,[\+\-]\s*(\d+\.?\d*)kg/;
-          const weightMatch = text.match(weightRegex);
+          const weightMatch = trimmedLine.match(weightRegex);
 
           if (weightMatch) {
             return {
               weight: parseFloat(weightMatch[1]),
               unit: 'kg',
-              stable: text.startsWith('ST'), // ST means stable
-              raw: text,
+              stable: trimmedLine.startsWith('ST'),
+              raw: trimmedLine
             };
           }
 
-          // If no match found, return zero weight
-          return {
-            weight: 0,
-            unit: 'kg',
-            stable: false,
-            raw: text,
-          };
-        }
-
-        async stopReading() {
-          this.isReading = false;
-          if (this.reader) {
-            await this.reader.cancel();
-          }
+          return null;
         }
 
         async disconnect() {
-          if (this.port) {
-            await this.port.close();
-            this.port = null;
+          try {
+            this.isReading = false;
+            if (this.reader) {
+              await this.reader.cancel();
+              this.reader.releaseLock();
+            }
+            if (this.port) {
+              await this.port.close();
+              this.port = null;
+            }
+            console.log('Disconnected from serial port');
+          } catch (error) {
+            console.error('Error disconnecting:', error);
+            throw error;
           }
         }
       }
 
       // UI Controller
-      const scale = new LoadMasterScaleReader();
-      const connectBtn = document.getElementById('connectBtn');
-      const startReadingBtn = document.getElementById('startReadingBtn');
-      const stopReadingBtn = document.getElementById('stopReadingBtn');
-      const disconnectBtn = document.getElementById('disconnectBtn');
-      const weightDisplay = document.getElementById('weightDisplay');
-      const statusDisplay = document.getElementById('statusDisplay');
-      const logElement = document.getElementById('log');
+      document.addEventListener('DOMContentLoaded', () => {
+        const weightDisplay = document.getElementById('weightDisplay');
+        const statusDisplay = document.getElementById('statusDisplay');
+        const logElement = document.getElementById('log');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
 
-      function updateStatus(message, isError = false) {
-        statusDisplay.textContent = message;
-        statusDisplay.className = 'status ' + (isError ? 'error' : 'success');
-      }
-
-      function log(message) {
-        const entry = document.createElement('div');
-        entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
-        logElement.appendChild(entry);
-        logElement.scrollTop = logElement.scrollHeight;
-      }
-
-      connectBtn.addEventListener('click', async () => {
-        try {
-          await scale.connect();
-          updateStatus('Connected to LoadMaster scale');
-          log('Connected to LoadMaster scale');
-          connectBtn.disabled = true;
-          startReadingBtn.disabled = false;
-          disconnectBtn.disabled = false;
-        } catch (error) {
-          updateStatus(`Connection failed: ${error.message}`, true);
-          log(`Error: ${error.message}`);
+        function updateStatus(message, isError = false) {
+          statusDisplay.textContent = message;
+          statusDisplay.className = 'status ' + (isError ? 'error' : 'success');
         }
-      });
 
-      startReadingBtn.addEventListener('click', async () => {
-        startReadingBtn.disabled = true;
-        stopReadingBtn.disabled = false;
+        function log(message) {
+          const entry = document.createElement('div');
+          entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+          logElement.appendChild(entry);
+          logElement.scrollTop = logElement.scrollHeight;
+        }
 
-        scale.startReading((error, data) => {
-          if (error) {
-            updateStatus(`Reading error: ${error.message}`, true);
+        const scaleReader = new LoadMasterScaleReader({
+          onWeightReceived: (data) => {
+            weightDisplay.textContent = `${data.weight} ${data.unit}${data.stable ? '' : ' (unstable)'}`;
+            log(`Weight reading: ${data.weight} ${data.unit}`);
+          },
+          onError: (message, error) => {
+            updateStatus(`${message} ${error.message}`, true);
             log(`Error: ${error.message}`);
-            return;
-          }
-          weightDisplay.textContent = `${data.weight} ${data.unit}`;
-          if (!data.stable) {
-            weightDisplay.textContent += ' (unstable)';
           }
         });
 
-        log('Started continuous reading');
-      });
+        connectBtn.addEventListener('click', async () => {
+          try {
+            await scaleReader.connect();
+            updateStatus('Connected to LoadMaster scale');
+            log('Connected to LoadMaster scale');
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+          } catch (error) {
+            updateStatus(`Connection failed: ${error.message}`, true);
+            log(`Error: ${error.message}`);
+          }
+        });
 
-      stopReadingBtn.addEventListener('click', async () => {
-        await scale.stopReading();
-        startReadingBtn.disabled = false;
-        stopReadingBtn.disabled = true;
-        log('Stopped continuous reading');
-      });
+        disconnectBtn.addEventListener('click', async () => {
+          try {
+            await scaleReader.disconnect();
+            weightDisplay.textContent = '-- kg';
+            updateStatus('Disconnected from scale');
+            log('Disconnected from scale');
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+          } catch (error) {
+            updateStatus(`Disconnection failed: ${error.message}`, true);
+            log(`Error: ${error.message}`);
+          }
+        });
 
-      disconnectBtn.addEventListener('click', async () => {
-        await scale.stopReading();
-        await scale.disconnect();
-        weightDisplay.textContent = '-- kg';
-        updateStatus('Disconnected from scale');
-        log('Disconnected from scale');
-        connectBtn.disabled = false;
-        startReadingBtn.disabled = true;
-        stopReadingBtn.disabled = true;
-        disconnectBtn.disabled = true;
+        // Check if Web Serial API is supported
+        if (!navigator.serial) {
+          updateStatus('Web Serial API is not supported in this browser', true);
+          connectBtn.disabled = true;
+        }
       });
-
-      // Check if Web Serial API is supported
-      if (!navigator.serial) {
-        updateStatus('Web Serial API is not supported in this browser', true);
-        connectBtn.disabled = true;
-      }
     </script>
   </body>
 </html>
