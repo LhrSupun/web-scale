@@ -97,24 +97,82 @@
           this.baudRate = options.baudRate || 9600;
           this.onWeightReceived = options.onWeightReceived || console.log;
           this.onError = options.onError || console.error;
+          this.connectionTimeout = options.connectionTimeout || 5000;
+          this._cleanup = this._cleanup.bind(this);
+          this._handleDisconnect = this._handleDisconnect.bind(this);
         }
 
         async connect() {
           try {
+            if (this.port) {
+              await this._cleanup();
+            }
+
             this.port = await navigator.serial.requestPort();
+
+            // Add event listener for disconnection
+            navigator.serial.addEventListener(
+              'disconnect',
+              this._handleDisconnect
+            );
+
             await this.port.open({
               baudRate: this.baudRate,
               dataBits: 8,
               stopBits: 1,
               parity: 'none',
-              flowControl: 'none'
+              flowControl: 'none',
             });
 
             console.log('Serial port connected successfully');
             this.startReading();
           } catch (error) {
-            console.error('Failed to connect:', error);
+            await this._cleanup();
             throw error;
+          }
+        }
+
+        async _handleDisconnect(event) {
+          if (event.target === this.port) {
+            this.onError(
+              'Scale disconnected unexpectedly',
+              new Error('Device disconnected')
+            );
+            await this._cleanup();
+          }
+        }
+
+        async _cleanup() {
+          this.isReading = false;
+
+          if (this.reader) {
+            try {
+              await this.reader.cancel();
+              await new Promise((resolve) => setTimeout(resolve, 100)); // Allow time for cancel
+              this.reader.releaseLock();
+            } catch (error) {
+              console.warn('Error cleaning up reader:', error);
+            }
+            this.reader = null;
+          }
+
+          if (this.port) {
+            try {
+              navigator.serial.removeEventListener(
+                'disconnect',
+                this._handleDisconnect
+              );
+              if (this.port.readable) {
+                this.port.readable.releaseLock();
+              }
+              if (this.port.writable) {
+                this.port.writable.releaseLock();
+              }
+              await this.port.close();
+            } catch (error) {
+              console.warn('Error cleaning up port:', error);
+            }
+            this.port = null;
           }
         }
 
@@ -129,37 +187,33 @@
             let buffer = '';
 
             while (this.isReading) {
-              const { value, done } = await this.reader.read();
-              if (done) break;
+              try {
+                const { value, done } = await this.reader.read();
+                if (done) break;
 
-              // Decode the received data and add to buffer
-              buffer += decoder.decode(value);
+                buffer += decoder.decode(value);
+                const lines = buffer.split('\r\n');
+                buffer = lines.pop();
 
-              // Process complete lines
-              const lines = buffer.split('\r\n');
-              buffer = lines.pop(); // Keep the incomplete line in the buffer
-
-              for (const line of lines) {
-                const weightData = this.parseWeightData(line);
-                if (weightData) {
-                  this.onWeightReceived(weightData);
+                for (const line of lines) {
+                  const weightData = this.parseWeightData(line);
+                  if (weightData) {
+                    this.onWeightReceived(weightData);
+                  }
                 }
+              } catch (error) {
+                if (!this.isReading) break; // Ignore errors during intentional shutdown
+                this.onError('Error reading data:', error);
+                await new Promise((resolve) => setTimeout(resolve, 1000)); // Delay retry
               }
             }
-          } catch (error) {
-            this.onError('Error reading from scale:', error);
           } finally {
-            this.isReading = false;
-            if (this.reader) {
-              this.reader.releaseLock();
-            }
+            await this._cleanup();
           }
         }
 
         parseWeightData(line) {
           const trimmedLine = line.trim();
-          // Parse according to LoadMaster format
-          // Example format: ST,GS,+ 123.45 kg
           const weightRegex = /ST,GS,[\+\-]\s*(\d+\.?\d*)kg/;
           const weightMatch = trimmedLine.match(weightRegex);
 
@@ -168,32 +222,22 @@
               weight: parseFloat(weightMatch[1]),
               unit: 'kg',
               stable: trimmedLine.startsWith('ST'),
-              raw: trimmedLine
+              raw: trimmedLine,
             };
           }
-
           return null;
         }
 
         async disconnect() {
           try {
-            this.isReading = false;
-            if (this.reader) {
-              await this.reader.cancel();
-              this.reader.releaseLock();
-            }
-            if (this.port) {
-              await this.port.close();
-              this.port = null;
-            }
+            await this._cleanup();
             console.log('Disconnected from serial port');
           } catch (error) {
-            console.error('Error disconnecting:', error);
+            console.error('Error during disconnect:', error);
             throw error;
           }
         }
       }
-
       // UI Controller
       document.addEventListener('DOMContentLoaded', () => {
         const weightDisplay = document.getElementById('weightDisplay');
@@ -216,13 +260,15 @@
 
         const scaleReader = new LoadMasterScaleReader({
           onWeightReceived: (data) => {
-            weightDisplay.textContent = `${data.weight} ${data.unit}${data.stable ? '' : ' (unstable)'}`;
+            weightDisplay.textContent = `${data.weight} ${data.unit}${
+              data.stable ? '' : ' (unstable)'
+            }`;
             log(`Weight reading: ${data.weight} ${data.unit}`);
           },
           onError: (message, error) => {
             updateStatus(`${message} ${error.message}`, true);
             log(`Error: ${error.message}`);
-          }
+          },
         });
 
         connectBtn.addEventListener('click', async () => {
