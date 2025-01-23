@@ -89,6 +89,7 @@
     </div>
 
     <script>
+      // LoadMaster Scale Reader
       class LoadMasterScaleReader {
         constructor(options = {}) {
           this.port = null;
@@ -149,7 +150,6 @@
             try {
               await this.reader.cancel();
               await new Promise((resolve) => setTimeout(resolve, 100)); // Allow time for cancel
-              this.reader.releaseLock();
             } catch (error) {
               console.warn('Error cleaning up reader:', error);
             }
