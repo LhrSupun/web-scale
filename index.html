@@ -162,13 +162,24 @@
                 'disconnect',
                 this._handleDisconnect
               );
-              if (this.port.readable) {
-                this.port.readable.releaseLock();
+              try {
+                if (this.port.readable) {
+                  this.port.readable.releaseLock();
+                }
+                if (this.port.writable) {
+                  this.port.writable.releaseLock();
+                }
+              } catch (error) {
+                console.warn('Error releasing locks:', error);
               }
-              if (this.port.writable) {
-                this.port.writable.releaseLock();
+
+              try {
+                if (this.port.readable || this.port.writable) {
+                  await this.port.close();
+                }
+              } catch (error) {
+                console.warn('Error closing port:', error);
               }
-              await this.port.close();
             } catch (error) {
               console.warn('Error cleaning up port:', error);
             }
@@ -238,7 +249,6 @@
           }
         }
       }
-      // UI Controller
       document.addEventListener('DOMContentLoaded', () => {
         const weightDisplay = document.getElementById('weightDisplay');
         const statusDisplay = document.getElementById('statusDisplay');
